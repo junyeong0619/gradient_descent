@@ -204,8 +204,22 @@ if ! command -v python3 >/dev/null 2>&1; then
     install_python
 fi
 
-# ── 2) ensure venv module (Debian splits it into a separate package) ─────────
-if ! python3 -c "import venv" >/dev/null 2>&1; then
+# ── 2) ensure venv module (Debian splits pip wheels into python3-venv) ──────
+# `import venv` alone is not enough on Ubuntu/Debian -- the actual venv build
+# step needs the wheels shipped by `python3-venv`, otherwise it leaves an
+# incomplete .venv/ without bin/activate. Best test: try a real creation.
+test_venv_creation() {
+    local tmp ok=1
+    tmp="$(mktemp -d)"
+    if python3 -m venv "$tmp/probe" >/dev/null 2>&1 \
+       && [ -f "$tmp/probe/bin/activate" ]; then
+        ok=0
+    fi
+    rm -rf "$tmp"
+    return $ok
+}
+
+if ! test_venv_creation; then
     install_python
 fi
 
@@ -221,10 +235,27 @@ if ! has_korean_font; then
     install_korean_font
 fi
 
-# ── 5) create venv ───────────────────────────────────────────────────────────
-if [ ! -d "$VENV_DIR" ]; then
+# ── 5) create venv (recreate if a previous run left it incomplete) ──────────
+if [ ! -f "$VENV_DIR/bin/activate" ]; then
+    if [ -d "$VENV_DIR" ]; then
+        echo "[*] Removing incomplete venv at $VENV_DIR"
+        rm -rf "$VENV_DIR"
+    fi
     echo "[*] Creating virtual environment... ($VENV_DIR)"
-    python3 -m venv "$VENV_DIR"
+    if ! python3 -m venv "$VENV_DIR" || [ ! -f "$VENV_DIR/bin/activate" ]; then
+        # Most common cause on Ubuntu/Debian: python3-venv not installed.
+        # Try installing system packages and retry once.
+        echo "[*] venv creation failed -- installing missing system packages and retrying"
+        rm -rf "$VENV_DIR"
+        install_python
+        python3 -m venv "$VENV_DIR"
+    fi
+    if [ ! -f "$VENV_DIR/bin/activate" ]; then
+        echo "Error: cannot create a working venv at $VENV_DIR." >&2
+        echo "  On Ubuntu/Debian, install python3-venv manually and re-run:" >&2
+        echo "    sudo apt install -y python3-venv python3-pip" >&2
+        exit 1
+    fi
 fi
 
 # shellcheck disable=SC1091
