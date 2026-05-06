@@ -5,11 +5,36 @@
 """
 
 import os
+import sys
 import platform
+import argparse
+from datetime import datetime
 import numpy as np
+
+# ── CLI 인자 + 헤드리스 감지 (matplotlib import 전) ───────────────────────────
+_parser = argparse.ArgumentParser(description="경사하강법 시뮬레이션 (GUI/헤드리스)")
+_parser.add_argument("--data", default=None,
+                     help="CSV 데이터 경로 (x,y,z 컬럼). 미지정 시 GUI는 다이얼로그, 헤드리스는 기본 함수")
+_parser.add_argument("--headless", action="store_true",
+                     help="GUI 없이 gif로 저장만 한다 (Linux에서 디스플레이 없으면 자동)")
+_parser.add_argument("--output", default=None,
+                     help="헤드리스 출력 gif 경로 (기본: simulation_YYYYMMDD_HHMMSS.gif)")
+ARGS = _parser.parse_args()
+
+def _is_headless():
+    if ARGS.headless:
+        return True
+    if platform.system() == "Linux":
+        return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return False
+
+HEADLESS = _is_headless()
+
 import matplotlib
-# 백엔드는 OS별로 자동 선택 (Mac=macosx, Windows/Linux=TkAgg 등)
-if platform.system() == "Darwin":
+# 백엔드: 헤드리스 → Agg, macOS GUI → macosx, 그 외 GUI → TkAgg
+if HEADLESS:
+    matplotlib.use("Agg")
+elif platform.system() == "Darwin":
     matplotlib.use("macosx")
 else:
     matplotlib.use("TkAgg")
@@ -17,10 +42,12 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.widgets import Button
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (projection='3d' 등록용)
-import tkinter as tk
-from tkinter import filedialog
+
+if HEADLESS:
+    from matplotlib.animation import PillowWriter
+else:
+    from matplotlib.widgets import Button
 
 # ── 폰트/축 스타일 ────────────────────────────────────────────────────────────
 # 한글 폰트: OS별로 시스템 기본 한글 폰트 지정 (없으면 sans-serif fallback)
@@ -78,6 +105,8 @@ COST_CMAP = LinearSegmentedColormap.from_list("cost_calm", [
 
 # ── 데이터 로드 ───────────────────────────────────────────────────────────────
 def pick_file():
+    import tkinter as tk
+    from tkinter import filedialog
     root = tk.Tk()
     root.withdraw()
     path = filedialog.askopenfilename(
@@ -119,7 +148,14 @@ def default_cost_fn(w1, w2):
     return ((w1**2 + w2 - 11)**2 + (w1 + w2**2 - 7)**2) / 50
 
 # ── 파일 선택 ─────────────────────────────────────────────────────────────────
-filepath = pick_file()
+# --data 인자 > 헤드리스(기본 함수) > GUI 다이얼로그
+if ARGS.data:
+    filepath = ARGS.data
+elif HEADLESS:
+    filepath = None
+else:
+    filepath = pick_file()
+
 if filepath and os.path.exists(filepath):
     try:
         xd, yd, zd = load_xyz(filepath)
@@ -225,41 +261,49 @@ mc_hists_z  = [cost_fn(h[:, 0], h[:, 1]) for h in mc_hists]
 fig = plt.figure(figsize=(15, 8.5), facecolor=C_BG)
 fig.subplots_adjust(top=0.85, bottom=0.10, left=0.05, right=0.97)
 
-gs_root = gridspec.GridSpec(2, 1, figure=fig, height_ratios=[13, 1.3], hspace=0.45)
-# 2D | 3D 사이드바이사이드
-gs_main = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_root[0], wspace=0.18)
-ax    = fig.add_subplot(gs_main[0])
-ax3d  = fig.add_subplot(gs_main[1], projection='3d')
+if HEADLESS:
+    # 헤드리스: 버튼 없이 메인 플롯만
+    gs_main = gridspec.GridSpec(1, 2, figure=fig, wspace=0.18)
+    ax    = fig.add_subplot(gs_main[0])
+    ax3d  = fig.add_subplot(gs_main[1], projection='3d')
+else:
+    gs_root = gridspec.GridSpec(2, 1, figure=fig, height_ratios=[13, 1.3], hspace=0.45)
+    # 2D | 3D 사이드바이사이드
+    gs_main = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs_root[0], wspace=0.18)
+    ax    = fig.add_subplot(gs_main[0])
+    ax3d  = fig.add_subplot(gs_main[1], projection='3d')
+
 ax.set_facecolor(C_PANEL)
 
-# 버튼 행: [pad][start][restart][next][skip][pad]
-gs_btn = gridspec.GridSpecFromSubplotSpec(1, 6, subplot_spec=gs_root[1], wspace=0.35)
-ax_b_start   = fig.add_subplot(gs_btn[1])
-ax_b_restart = fig.add_subplot(gs_btn[2])
-ax_b_next    = fig.add_subplot(gs_btn[3])
-ax_b_skip    = fig.add_subplot(gs_btn[4])
+if not HEADLESS:
+    # 버튼 행: [pad][start][restart][next][skip][pad]
+    gs_btn = gridspec.GridSpecFromSubplotSpec(1, 6, subplot_spec=gs_root[1], wspace=0.35)
+    ax_b_start   = fig.add_subplot(gs_btn[1])
+    ax_b_restart = fig.add_subplot(gs_btn[2])
+    ax_b_next    = fig.add_subplot(gs_btn[3])
+    ax_b_skip    = fig.add_subplot(gs_btn[4])
 
-# 버튼 axes에 spine/tick 제거 (테두리 없는 평면 버튼)
-for btn_ax in [ax_b_start, ax_b_restart, ax_b_next, ax_b_skip]:
-    for spine in btn_ax.spines.values():
-        spine.set_visible(False)
-    btn_ax.set_xticks([])
-    btn_ax.set_yticks([])
+    # 버튼 axes에 spine/tick 제거 (테두리 없는 평면 버튼)
+    for btn_ax in [ax_b_start, ax_b_restart, ax_b_next, ax_b_skip]:
+        for spine in btn_ax.spines.values():
+            spine.set_visible(False)
+        btn_ax.set_xticks([])
+        btn_ax.set_yticks([])
 
-# 텍스트 전용 버튼: 배경을 figure와 동일하게 두고 hover에서만 미세하게 변함
-btn_start   = Button(ax_b_start,   "시작",         color=C_BG, hovercolor=C_HOVER)
-btn_restart = Button(ax_b_restart, "재시작",       color=C_BG, hovercolor=C_HOVER)
-btn_next    = Button(ax_b_next,    "다음 단계 →",  color=C_BG, hovercolor=C_HOVER)
-btn_skip    = Button(ax_b_skip,    "건너뛰기",     color=C_BG, hovercolor=C_HOVER)
+    # 텍스트 전용 버튼: 배경을 figure와 동일하게 두고 hover에서만 미세하게 변함
+    btn_start   = Button(ax_b_start,   "시작",         color=C_BG, hovercolor=C_HOVER)
+    btn_restart = Button(ax_b_restart, "재시작",       color=C_BG, hovercolor=C_HOVER)
+    btn_next    = Button(ax_b_next,    "다음 단계 →",  color=C_BG, hovercolor=C_HOVER)
+    btn_skip    = Button(ax_b_skip,    "건너뛰기",     color=C_BG, hovercolor=C_HOVER)
 
-for btn, fg, bold, size in [(btn_start,   C_PRIMARY, True,  13),
-                            (btn_restart, C_MUTED,   False, 12),
-                            (btn_next,    C_PRIMARY, True,  13),
-                            (btn_skip,    C_MUTED,   False, 12)]:
-    btn.label.set_color(fg)
-    btn.label.set_fontsize(size)
-    if bold:
-        btn.label.set_fontweight('bold')
+    for btn, fg, bold, size in [(btn_start,   C_PRIMARY, True,  13),
+                                (btn_restart, C_MUTED,   False, 12),
+                                (btn_next,    C_PRIMARY, True,  13),
+                                (btn_skip,    C_MUTED,   False, 12)]:
+        btn.label.set_color(fg)
+        btn.label.set_fontsize(size)
+        if bold:
+            btn.label.set_fontweight('bold')
 
 # ── 2D 등고선 플롯 ────────────────────────────────────────────────────────────
 cf = ax.contourf(W1g, W2g, Zg, levels=80, cmap=COST_CMAP, alpha=0.92)
@@ -552,6 +596,104 @@ def on_skip(event):
         finalize_phase2()
     fig.canvas.draw_idle()
 
+if HEADLESS:
+    # ── 헤드리스: Phase 1 → Phase 2 통합 애니메이션을 gif로 저장 ─────────────
+    # 프레임 스트라이드로 길이/용량 절감 (마지막 에폭은 항상 포함하여 수렴 결과 보존)
+    HEADLESS_FRAME_STRIDE = 3
+    HEADLESS_GIF_FPS      = 10
+    HEADLESS_GIF_DPI      = 80
+
+    def _stride_indices(total, stride):
+        idx = list(range(0, total, stride))
+        if idx[-1] != total - 1:
+            idx.append(total - 1)
+        return idx
+
+    phase_total  = N_EPOCHS + 1
+    phase1_epoch = _stride_indices(phase_total, HEADLESS_FRAME_STRIDE)
+    phase2_epoch = _stride_indices(phase_total, HEADLESS_FRAME_STRIDE)
+    n_phase1     = len(phase1_epoch)
+    total_frames = n_phase1 + len(phase2_epoch)
+
+    def _setup_phase1():
+        for obj in mc_balls + mc_trails + mc_balls_3d + mc_trails_3d:
+            obj.set_visible(False)
+        ball_p1.set_color(C_AMBER)
+        ball_p1_3d.set_color(C_AMBER)
+        for obj in (ball_p1, ball_p1_3d, trail_p1, trail_p1_3d):
+            obj.set_visible(True)
+        set_titles("경사하강법 시뮬레이터", "Gradient Descent Simulator")
+        ax_subtitle.set_text(f"Phase 1 — 모멘텀 SGD  ·  {DATA_LABEL}")
+        set_status("학습 중...  (Training)", C_PRIMARY)
+
+    def _setup_phase2():
+        for obj in (ball_p1, ball_p1_3d, trail_p1, trail_p1_3d):
+            obj.set_visible(False)
+        for ball, trail, ball3, trail3, is_glob in zip(
+                mc_balls, mc_trails, mc_balls_3d, mc_trails_3d, mc_is_global):
+            color = C_SUCCESS if is_glob else C_DANGER
+            ball.set_color(color);  ball.set_visible(True)
+            trail.set_color(color); trail.set_visible(True)
+            ball3.set_color(color); ball3.set_visible(True)
+            trail3.set_color(color); trail3.set_visible(True)
+        set_titles("몬테카를로 + 경사하강법 시뮬레이터",
+                   "Monte Carlo + Gradient Descent Simulator")
+        set_status("학습 중...  (Monte Carlo)", C_PRIMARY)
+
+    def update_combined(frame):
+        if frame < n_phase1:
+            if frame == 0:
+                _setup_phase1()
+            i = phase1_epoch[frame]
+            trail_p1.set_data(w_hist_p1[:i+1, 0], w_hist_p1[:i+1, 1])
+            ball_p1.set_data([w_hist_p1[i, 0]], [w_hist_p1[i, 1]])
+            trail_p1_3d.set_data_3d(w_hist_p1[:i+1, 0], w_hist_p1[:i+1, 1],
+                                     w_hist_p1_z[:i+1])
+            ball_p1_3d.set_data_3d([w_hist_p1[i, 0]], [w_hist_p1[i, 1]],
+                                    [w_hist_p1_z[i]])
+            j_cur = float(w_hist_p1_z[i])
+            ax_subtitle.set_text(
+                f"Phase 1 — 모멘텀 SGD   ·   에폭 {i}/{N_EPOCHS}   ·   "
+                f"w₁={w_hist_p1[i,0]:+.3f}  w₂={w_hist_p1[i,1]:+.3f}   ·   J={j_cur:.4f}"
+            )
+            if i == N_EPOCHS:
+                finalize_phase1(w_hist_p1[i])
+        else:
+            local = frame - n_phase1
+            if local == 0:
+                _setup_phase2()
+            i = phase2_epoch[local]
+            for ball, trail, ball3, trail3, wh, whz in zip(
+                    mc_balls, mc_trails, mc_balls_3d, mc_trails_3d, mc_hists, mc_hists_z):
+                trail.set_data(wh[:i+1, 0], wh[:i+1, 1])
+                ball.set_data([wh[i, 0]], [wh[i, 1]])
+                trail3.set_data_3d(wh[:i+1, 0], wh[:i+1, 1], whz[:i+1])
+                ball3.set_data_3d([wh[i, 0]], [wh[i, 1]], [whz[i]])
+            ax_subtitle.set_text(
+                f"Phase 2 — 몬테카를로   ·   에폭 {i}/{N_EPOCHS}   ·   "
+                f"초록=전역 최솟값  /  빨강=지역 최솟값"
+            )
+            if i == N_EPOCHS:
+                finalize_phase2()
+        return []
+
+    output_path = ARGS.output or f"simulation_{datetime.now():%Y%m%d_%H%M%S}.gif"
+
+    anim = FuncAnimation(fig, update_combined, frames=total_frames,
+                         interval=int(1000 / HEADLESS_GIF_FPS),
+                         blit=False, repeat=False)
+
+    print(f"렌더링 중... ({total_frames} 프레임 → {output_path})", flush=True)
+    def _progress(current, total):
+        step = max(1, total // 20)
+        if current % step == 0 or current == total - 1:
+            print(f"  {current+1}/{total}", flush=True)
+    anim.save(output_path, writer=PillowWriter(fps=HEADLESS_GIF_FPS),
+              dpi=HEADLESS_GIF_DPI, progress_callback=_progress)
+    print(f"완료: {output_path}", flush=True)
+    sys.exit(0)
+
+# ── GUI 모드: 버튼 콜백 + 표시 ───────────────────────────────────────────────
 btn_start.on_clicked(on_start)
 btn_restart.on_clicked(on_start)
 btn_next.on_clicked(on_next)
