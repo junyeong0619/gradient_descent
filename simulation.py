@@ -12,13 +12,13 @@ from datetime import datetime
 import numpy as np
 
 # ── CLI 인자 + 헤드리스 감지 (matplotlib import 전) ───────────────────────────
-_parser = argparse.ArgumentParser(description="경사하강법 시뮬레이션 (GUI/헤드리스)")
+_parser = argparse.ArgumentParser(description="Gradient Descent Simulation (GUI / headless)")
 _parser.add_argument("--data", default=None,
-                     help="CSV 데이터 경로 (x,y,z 컬럼). 미지정 시 GUI는 다이얼로그, 헤드리스는 기본 함수")
+                     help="CSV path with x,y,z columns. If omitted: GUI shows a file dialog, headless uses the default function.")
 _parser.add_argument("--headless", action="store_true",
-                     help="GUI 없이 gif로 저장만 한다 (Linux에서 디스플레이 없으면 자동)")
+                     help="Run without GUI and save as gif (auto on Linux without DISPLAY).")
 _parser.add_argument("--output", default=None,
-                     help="헤드리스 출력 gif 경로 (기본: simulation_YYYYMMDD_HHMMSS.gif)")
+                     help="Output gif path for headless mode (default: simulation_YYYYMMDD_HHMMSS.gif).")
 ARGS = _parser.parse_args()
 
 def _is_headless():
@@ -78,7 +78,7 @@ if _KOR_FONT is None:
     warnings.filterwarnings('ignore', message='.*Glyph .* missing.*')
     warnings.filterwarnings('ignore', message='.*findfont.*')
     logging.getLogger('matplotlib').setLevel(logging.ERROR)
-    print("경고: 한글 폰트를 찾을 수 없습니다. 한글이 □로 표시될 수 있습니다.",
+    print("Warning: no Korean font found. Korean characters may render as boxes.",
           flush=True)
 else:
     plt.rcParams['font.family'] = _KOR_FONT
@@ -189,7 +189,7 @@ if filepath and os.path.exists(filepath):
         W2_RANGE  = (yd.min(), yd.max())
         DATA_LABEL = os.path.basename(filepath)
     except Exception as e:
-        print(f"파일 로드 실패: {e} → 기본 함수 사용")
+        print(f"Failed to load data file: {e} -> falling back to default function.")
         cost_fn    = default_cost_fn
         W1_RANGE   = W2_RANGE = (-4.0, 4.0)
         DATA_LABEL = "기본 합성 함수 (Himmelblau 변형)"
@@ -708,14 +708,14 @@ if HEADLESS:
                          interval=int(1000 / HEADLESS_GIF_FPS),
                          blit=False, repeat=False)
 
-    print(f"렌더링 중... ({total_frames} 프레임 → {output_path})", flush=True)
+    print(f"Rendering... ({total_frames} frames -> {output_path})", flush=True)
     def _progress(current, total):
         step = max(1, total // 20)
         if current % step == 0 or current == total - 1:
             print(f"  {current+1}/{total}", flush=True)
     anim.save(output_path, writer=PillowWriter(fps=HEADLESS_GIF_FPS),
               dpi=HEADLESS_GIF_DPI, progress_callback=_progress)
-    print(f"완료: {output_path}", flush=True)
+    print(f"Done: {output_path}", flush=True)
     sys.exit(0)
 
 # ── GUI 모드: 버튼 콜백 + 표시 ───────────────────────────────────────────────
