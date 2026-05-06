@@ -106,6 +106,53 @@ install_python() {
     esac
 }
 
+has_korean_font() {
+    if [ "$(uname -s)" = "Darwin" ]; then
+        return 0   # macOS는 AppleGothic 기본 포함
+    fi
+    command -v fc-list >/dev/null 2>&1 \
+        && fc-list :lang=ko 2>/dev/null | grep -q .
+}
+
+install_korean_font() {
+    if [ "$OS" = "macos" ]; then
+        return
+    fi
+    if [ -z "$SUDO" ] && [ "$(id -u)" -ne 0 ]; then
+        echo "  경고: 한글 폰트 설치 건너뜀 (sudo 없음). 한글이 □로 표시될 수 있음." >&2
+        return
+    fi
+    echo "[*] 한글 폰트 설치 중... ($OS)"
+    case "$OS" in
+        debian)
+            run_priv apt-get install -y fonts-nanum 2>/dev/null \
+                || run_priv apt-get install -y fonts-noto-cjk 2>/dev/null \
+                || echo "  경고: 한글 폰트 패키지 설치 실패." >&2
+            ;;
+        rhel)
+            if command -v dnf >/dev/null 2>&1; then
+                run_priv dnf install -y google-noto-sans-cjk-fonts 2>/dev/null \
+                    || run_priv dnf install -y nhn-nanum-fonts-common 2>/dev/null \
+                    || echo "  경고: 한글 폰트 패키지 설치 실패." >&2
+            fi
+            ;;
+        arch)
+            run_priv pacman -Sy --noconfirm noto-fonts-cjk 2>/dev/null \
+                || echo "  경고: 한글 폰트 패키지 설치 실패." >&2
+            ;;
+        alpine)
+            run_priv apk add --no-cache font-noto-cjk 2>/dev/null \
+                || echo "  경고: 한글 폰트 패키지 설치 실패." >&2
+            ;;
+        *)
+            echo "  경고: 한글 폰트 자동 설치 미지원 OS ($OS)." >&2
+            ;;
+    esac
+    # 새 폰트 반영을 위해 캐시 갱신
+    command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
+    rm -rf "$HOME/.cache/matplotlib" 2>/dev/null || true
+}
+
 install_tk() {
     echo "[*] tkinter 설치 중... ($OS)"
     case "$OS" in
@@ -169,7 +216,12 @@ if needs_gui "$@"; then
     fi
 fi
 
-# ── 4) venv 생성 ─────────────────────────────────────────────────────────────
+# ── 4) 한글 폰트 확인 / 설치 (best-effort) ───────────────────────────────────
+if ! has_korean_font; then
+    install_korean_font
+fi
+
+# ── 5) venv 생성 ─────────────────────────────────────────────────────────────
 if [ ! -d "$VENV_DIR" ]; then
     echo "[*] 가상환경 생성 중... ($VENV_DIR)"
     python3 -m venv "$VENV_DIR"
@@ -178,12 +230,12 @@ fi
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
 
-# ── 5) pip 의존성 확인 / 설치 ────────────────────────────────────────────────
+# ── 6) pip 의존성 확인 / 설치 ────────────────────────────────────────────────
 if ! python -c "import numpy, matplotlib, PIL" 2>/dev/null; then
     echo "[*] pip 의존성 설치 중..."
     python -m pip install --quiet --upgrade pip
     python -m pip install --quiet -r requirements.txt
 fi
 
-# ── 6) 실행 ──────────────────────────────────────────────────────────────────
+# ── 7) 실행 ──────────────────────────────────────────────────────────────────
 exec python simulation.py "$@"

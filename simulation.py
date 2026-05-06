@@ -50,13 +50,38 @@ else:
     from matplotlib.widgets import Button
 
 # ── 폰트/축 스타일 ────────────────────────────────────────────────────────────
-# 한글 폰트: OS별로 시스템 기본 한글 폰트 지정 (없으면 sans-serif fallback)
-_KOR_FONT = {
-    "Darwin":  "AppleGothic",
-    "Windows": "Malgun Gothic",
-    "Linux":   "NanumGothic",
-}.get(platform.system(), "DejaVu Sans")
-plt.rcParams['font.family']        = _KOR_FONT
+# 한글 폰트: OS별 후보 중 시스템에 실제 설치된 것을 자동 선택.
+# 어느 것도 없으면 missing-glyph 경고 억제 + 영문 fallback (텍스트는 깨질 수 있음)
+_KOR_FONT_CANDIDATES = {
+    "Darwin":  ["AppleGothic", "Apple SD Gothic Neo"],
+    "Windows": ["Malgun Gothic", "맑은 고딕"],
+    "Linux":   ["NanumGothic", "Nanum Gothic", "Noto Sans CJK KR",
+                "Noto Sans KR", "UnDotum", "Baekmuk Gulim",
+                "Source Han Sans KR", "Droid Sans Fallback"],
+}
+
+def _pick_korean_font():
+    from matplotlib import font_manager
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    for name in _KOR_FONT_CANDIDATES.get(platform.system(), []):
+        if name in available:
+            return name
+    return None
+
+_KOR_FONT = _pick_korean_font()
+if _KOR_FONT is None:
+    import warnings, logging
+    plt.rcParams['font.family'] = 'DejaVu Sans'
+    # 한글 글리프 누락 경고 무한 출력 방지
+    # (matplotlib은 warnings.warn 과 logging 양쪽으로 보냄 → 둘 다 차단)
+    warnings.filterwarnings('ignore', message='.*missing from font.*')
+    warnings.filterwarnings('ignore', message='.*Glyph .* missing.*')
+    warnings.filterwarnings('ignore', message='.*findfont.*')
+    logging.getLogger('matplotlib').setLevel(logging.ERROR)
+    print("경고: 한글 폰트를 찾을 수 없습니다. 한글이 □로 표시될 수 있습니다.",
+          flush=True)
+else:
+    plt.rcParams['font.family'] = _KOR_FONT
 plt.rcParams['axes.unicode_minus'] = False
 plt.rcParams['axes.spines.top']    = False
 plt.rcParams['axes.spines.right']  = False
