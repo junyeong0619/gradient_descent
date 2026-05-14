@@ -301,15 +301,16 @@ else:
 ax.set_facecolor(C_PANEL)
 
 if not HEADLESS:
-    # 버튼 행: [pad][start][restart][next][skip][pad]
-    gs_btn = gridspec.GridSpecFromSubplotSpec(1, 6, subplot_spec=gs_root[1], wspace=0.35)
+    # 버튼 행: [pad][start][restart][next][skip][exit][pad]
+    gs_btn = gridspec.GridSpecFromSubplotSpec(1, 7, subplot_spec=gs_root[1], wspace=0.35)
     ax_b_start   = fig.add_subplot(gs_btn[1])
     ax_b_restart = fig.add_subplot(gs_btn[2])
     ax_b_next    = fig.add_subplot(gs_btn[3])
     ax_b_skip    = fig.add_subplot(gs_btn[4])
+    ax_b_exit    = fig.add_subplot(gs_btn[5])
 
     # 버튼 axes에 spine/tick 제거 (테두리 없는 평면 버튼)
-    for btn_ax in [ax_b_start, ax_b_restart, ax_b_next, ax_b_skip]:
+    for btn_ax in [ax_b_start, ax_b_restart, ax_b_next, ax_b_skip, ax_b_exit]:
         for spine in btn_ax.spines.values():
             spine.set_visible(False)
         btn_ax.set_xticks([])
@@ -320,11 +321,13 @@ if not HEADLESS:
     btn_restart = Button(ax_b_restart, "재시작",       color=C_BG, hovercolor=C_HOVER)
     btn_next    = Button(ax_b_next,    "다음 단계 →",  color=C_BG, hovercolor=C_HOVER)
     btn_skip    = Button(ax_b_skip,    "건너뛰기",     color=C_BG, hovercolor=C_HOVER)
+    btn_exit    = Button(ax_b_exit,    "종료",         color=C_BG, hovercolor=C_HOVER)
 
     for btn, fg, bold, size in [(btn_start,   C_PRIMARY, True,  13),
                                 (btn_restart, C_MUTED,   False, 12),
                                 (btn_next,    C_PRIMARY, True,  13),
-                                (btn_skip,    C_MUTED,   False, 12)]:
+                                (btn_skip,    C_MUTED,   False, 12),
+                                (btn_exit,    C_MUTED,   False, 12)]:
         btn.label.set_color(fg)
         btn.label.set_fontsize(size)
         if bold:
@@ -719,10 +722,14 @@ if HEADLESS:
     sys.exit(0)
 
 # ── GUI 모드: 버튼 콜백 + 표시 ───────────────────────────────────────────────
+def on_exit(_event):
+    plt.close('all')
+
 btn_start.on_clicked(on_start)
 btn_restart.on_clicked(on_start)
 btn_next.on_clicked(on_next)
 btn_skip.on_clicked(on_skip)
+btn_exit.on_clicked(on_exit)
 
 show_initial()
 plt.show()
